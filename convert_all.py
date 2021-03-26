@@ -13,11 +13,12 @@ parser=argparse.ArgumentParser(description='Convert all files with a specified e
     epilog='''The tool will recreate the input directory tree at the output, replacing file extensions and names of folders that are exactly equal to input extension.
     For example, if using this to convert png to jpg, input blah/png/image.png will become blah/jpg/image.jpg '''
     )
-parser.add_argument('--in', dest='input', metavar='PATH', help='Input folder to scan recursively')
-parser.add_argument('--in_ext', metavar='EXTENSION', help='Extension of input files')
-parser.add_argument('--out', dest='output', metavar='PATH', help='Output folder where to write results')
-parser.add_argument('--out_ext', metavar='EXTENSION', help='Extension of output files.')
+parser.add_argument('--in', dest='input', metavar='PATH', required=True, help='Input folder to scan recursively')
+parser.add_argument('--in_ext', metavar='EXTENSION', required=True, help='Extension of input files')
+parser.add_argument('--out', dest='output', metavar='PATH', required=True, help='Output folder where to write results')
+parser.add_argument('--out_ext', metavar='EXTENSION', required=True, help='Extension of output files.')
 parser.add_argument('--dry_run', action='store_true', help='Dry run (do not run the tool)')
+parser.add_argument('--overwrite', action='store_true', help='Overwrite output files')
 parser.add_argument('--tmp', metavar='Temporary extension', help='File extension to use for temporaries')
 parser.add_argument('--jobs', metavar="NUMBER", type=int, default=cpucount, help='Max number of parallel executions of the command')
 parser.add_argument('command', metavar='COMMAND_OR_ARGUMENT', nargs=argparse.REMAINDER,
@@ -71,6 +72,8 @@ def wait_for_jobs(pool) :
 def make_command(in_name, out_name):
     return [a.format(i=in_name, o=out_name) for a in args.command]
 
+dirs=set()
+
 for in_file in in_folder.glob(f'**/*.{args.in_ext}') :
     rel=in_file.relative_to(in_folder)
     parts=[]
@@ -80,18 +83,24 @@ for in_file in in_folder.glob(f'**/*.{args.in_ext}') :
         parts.append(p)
     out_rel=Path(*parts)
     out=(out_folder/out_rel).with_suffix("."+args.out_ext)
-
+    if (not args.overwrite) and out.exists() :
+        print(f'{out} exists, skipped (use --overwrite)')
+        continue
     if args.tmp:
         tmp_name = out.with_suffix('.'+args.tmp)
         cmd = make_command(in_file, tmp_name)
     else :
         tmp_name = None
         cmd = make_command(in_file, out)
-
     if args.dry_run :
         print(f'{cmd}')
+        if tmp_name is not None:
+            print(f'mv {tmp_name} {out}')
     else :
-        out.parent.mkdir(parents=True, exist_ok=True)
+        p=out.parent
+        if p not in dirs:
+            p.mkdir(parents=True, exist_ok=True)
+            dirs.add(out.parent)
         job_run(jobs_pool, cmd, tmp_name, out)
 
 wait_for_jobs(jobs_pool)
